@@ -1,0 +1,5 @@
+export CLASSPATH="."
+
+for path in `find processing/core -name '*.jar'`; do
+    export CLASSPATH="$CLASSPATH:$path"
+done
