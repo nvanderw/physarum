@@ -108,7 +108,7 @@ package physarum {
     }
 
     def dissipate_pheromone() {
-      val dissipation_constant = 0.5 / neighbors.size
+      val dissipation_constant = 0.5 / 8
 
       def pheromone_gradient(a: Cell, b: Cell): Map[Pheromone, Double] = {
         val output: MMap[Pheromone, Double] = MMap()
