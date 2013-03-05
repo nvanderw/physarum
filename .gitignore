@@ -1,1 +1,7 @@
+index
+lib
+processing
 physarum
+*.html
+*.js
+*.swp
