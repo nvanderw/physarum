@@ -32,6 +32,13 @@ package physarum {
     /** Mutable map of pheromone levels */
     val pheromones: MMap[Pheromone, Double] = MMap()
 
+    /** We need this while we calculate the new pheromone levels during
+      * dissipation. Since each cell's pheromone levels on the nth iteration
+      * affect its neighbors' pheromone levels on the (n+1)th iteration, and
+      * since we want to update pheromone levels in-place, we have to store
+      * the current levels while we update the next levels. */
+    val current_pheromones: MMap[Pheromone, Double] = MMap()
+
     /** Mutable set of neighbors */
     val neighbors: MSet[Cell] = MSet()
 
@@ -41,13 +48,29 @@ package physarum {
       neighbor.neighbors.add(this)
     }
 
+    /* Our underlying model is based on having various pheromone levels through
+     * each cell. Pheromone levels will change through the following events
+     * which happen each iteration.
+     *
+     * - Exponential decay. Pheromone levels are multiplied by a constant
+     *   0 < beta < 1
+     *
+     * - Secretion. Objects within a cell, like food, obstacles, or plasmodium
+     *   will deposit pheromone in the cell containing them.
+     *
+     * - Dissipation. This is based on Newton's Law of Cooling, where the
+     *   flux (in this case of chemical concentration) is proportional to
+     *   the gradient of concentration, with some constant of proportionality
+     *   kappa.
+     */
+
     /**
       * Implements an exponential decay on the cell's pheromone levels
       * by multiplying each pheromone level by a decay constant. Called by
-      * [[physarum.Simulation]].
+      * [[physarum.Simulation]]'s update_pheromone method.
       */
     def decay_pheromone() {
-      val decay_constant = 0.5
+      val decay_constant = 0.8
 
       /* Iterate over (pheromone, level) pairs, mutating the levels
        * by multiplying them by the decay constant */
@@ -77,6 +100,55 @@ package physarum {
     def update_local_pheromone() {
       decay_pheromone()
       secrete_pheromone()
+    }
+
+    def save_pheromone() {
+      current_pheromones.clear()
+      current_pheromones ++= pheromones
+    }
+
+    def dissipate_pheromone() {
+      val dissipation_constant = 0.5 / neighbors.size
+
+      def pheromone_gradient(a: Cell, b: Cell): Map[Pheromone, Double] = {
+        val output: MMap[Pheromone, Double] = MMap()
+        
+        val (a_phers, b_phers) = (a.current_pheromones.keySet,
+                                  b.current_pheromones.keySet)
+
+        // Which pheromones these cells have in common
+        val shared_pheromones = a_phers & b_phers
+
+        // Which pheromones each of these cells has exclusively
+        val (a_exclusive, b_exclusive) = (a_phers &~ b_phers, b_phers &~ a_phers)
+
+        shared_pheromones.foreach(pher =>
+          output.update(pher, b.current_pheromones(pher) - a.current_pheromones(pher)))
+
+        /* If a pheromone is in cell A but not in cell B, that is a
+         * negative gradient. If a that pheromone is in B but not A, that's
+         * a positive gradient. */
+        a_exclusive.foreach(pher =>
+          output.update(pher, -a.current_pheromones(pher)))
+
+        b_exclusive.foreach(pher =>
+          output.update(pher, b.current_pheromones(pher)))
+
+        output.toMap
+      }
+
+      /* Compute the pheromone gradient for each neighbor and update pheromone
+       * levels in both cells.
+       */
+      neighbors.foreach(neighbor => {
+        val gradient = pheromone_gradient(this, neighbor)
+        gradient.foreach({
+          case (pher, level) => {
+            neighbor.add_pheromone(pher, -dissipation_constant * level)
+            add_pheromone(pher, dissipation_constant * level)
+          }
+        })
+      })
     }
   }
 
@@ -132,8 +204,6 @@ package physarum {
             case (row_index, col_index) =>
               grid(row)(col).connect_to(grid(row_index)(col_index))
           })
-
-          println(grid(row)(col).neighbors.size)
         }))
           
 
@@ -160,8 +230,13 @@ package physarum {
           // For each cell, first dissipate the pheromone levels already
           // within the cell
           cell.update_local_pheromone()
+          cell.save_pheromone()
         })
       )
+
+      grid.foreach(row =>
+        row.foreach(cell =>
+          cell.dissipate_pheromone()))
     }
   }
 
