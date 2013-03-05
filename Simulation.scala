@@ -31,6 +31,53 @@ package physarum {
     
     /** Mutable map of pheromone levels */
     val pheromones: MMap[Pheromone, Double] = MMap()
+
+    /** Mutable set of neighbors */
+    val neighbors: MSet[Cell] = MSet()
+
+    /** Connects this cell to a neighbor. Used when initialize the model. */
+    def connect_to(neighbor: Cell) = {
+      neighbors.add(neighbor)
+      neighbor.neighbors.add(this)
+    }
+
+    /**
+      * Implements an exponential decay on the cell's pheromone levels
+      * by multiplying each pheromone level by a decay constant. Called by
+      * [[physarum.Simulation]].
+      */
+    def decay_pheromone() {
+      val decay_constant = 0.5
+
+      /* Iterate over (pheromone, level) pairs, mutating the levels
+       * by multiplying them by the decay constant */
+      pheromones.foreach({
+        case (pheromone, level) => {
+          pheromones.update(pheromone, level * decay_constant)
+        }
+      })
+    }
+
+    /** Adds some amount of pheromone to the current mapping. */
+    def add_pheromone(pher: Pheromone, amount: Double) =
+      pheromones.get(pher) match {
+        case None => pheromones.update(pher, amount)
+        case Some(existing_amount) => pheromones.update(pher, existing_amount + amount)
+      }
+    
+    def secrete_pheromone() =
+      objects.foreach(obj =>
+        obj.scent.foreach({
+          /* For each object in the cell, find its scent and add it to our
+           * mapping. */
+          case (pher, amount) => add_pheromone(pher, amount)
+        })
+      )
+
+    def update_local_pheromone() {
+      decay_pheromone()
+      secrete_pheromone()
+    }
   }
 
   /**
@@ -48,8 +95,10 @@ package physarum {
     * mold will want to grow.
     */
   class Simulation extends PApplet {
+    val (rows, cols) = (10, 10)
+
     /** The simulation's state is represented by a mutable 2D grid of cells */
-    val grid: Array[Array[Cell]] = Array.ofDim(10, 10)
+    val grid: Array[Array[Cell]] = Array.ofDim(rows, cols)
 
     /** Inherited from PApplet. Sets up the model and view states for the
       * simulation.
@@ -61,6 +110,32 @@ package physarum {
           grid(row)(col) = new Cell()
         )
       )
+
+      // Connect the cells
+      grid.indices.foreach(row =>
+        grid(row).indices.foreach(col => {
+          /* Calculate the indices of neighbors. Here we list the possible
+           * values for the neighbor row and column indices. */
+          val row_indices = List(row - 1, row, row + 1)
+          val col_indices = List(col - 1, col, col + 1)
+
+          // Now we take a Cartesian product using wonderful monads.
+          val neighbor_indices = row_indices.flatMap(r =>
+            col_indices.map(c => (r, c)))
+
+          // Filter out the indices that our outside the bounds of our grid.
+          neighbor_indices.filter({
+            case (row, col) => (row >= 0) && (row < rows) &&
+                               (col >= 0) && (col < cols)
+          }).foreach({
+            // Now connect the cell to its neighbors.
+            case (row_index, col_index) =>
+              grid(row)(col).connect_to(grid(row_index)(col_index))
+          })
+
+          println(grid(row)(col).neighbors.size)
+        }))
+          
 
       size(1024, 768)
     }
@@ -81,12 +156,11 @@ package physarum {
     def update_pheromone() {
       // Iterate over each cell in the grid
       grid.foreach(row =>
-        row.foreach(cell =>
-          /* For each cell, update its pheromone levels with each object
-           * it contains */
-          cell.objects.foreach(obj => {
-          })
-        )
+        row.foreach(cell => {
+          // For each cell, first dissipate the pheromone levels already
+          // within the cell
+          cell.update_local_pheromone()
+        })
       )
     }
   }
