@@ -19,6 +19,11 @@ package physarum {
     def scent: Map[Pheromone, Double] = Map(Attract -> amount)
   }
 
+  /** Plasmodium, which secretes attractant */
+  class Plasmodium(amount: Double) extends Odiferous {
+    def scent: Map[Pheromone, Double] = Map(Attract -> amount)
+  }
+
   /**
     * The state of an instance of [[physarum.Simulation]] is made up of a 2D
     * grid of these cells. The cell is a kind of container representing
@@ -150,6 +155,9 @@ package physarum {
         })
       })
     }
+    
+    def contains_plasmodium: Boolean = objects.exists(obj =>
+      obj.isInstanceOf[Plasmodium])
   }
 
   /**
@@ -218,6 +226,7 @@ package physarum {
 
     def update_model() {
       update_pheromone()
+      update_plasmodium()
     }
 
     /**
@@ -227,8 +236,6 @@ package physarum {
       // Iterate over each cell in the grid
       grid.foreach(row =>
         row.foreach(cell => {
-          // For each cell, first dissipate the pheromone levels already
-          // within the cell
           cell.update_local_pheromone()
           cell.save_pheromone()
         })
@@ -238,9 +245,24 @@ package physarum {
         row.foreach(cell =>
           cell.dissipate_pheromone()))
     }
+
+    def update_plasmodium() {
+      // All cells containing plasmodium
+      val plasmodium_cells = grid.flatten.filter(cell => cell.contains_plasmodium)
+
+      /* All cells not containing plasmodium that are neighbored by cells
+       * containing plasmodium. These are cells where the plasmodium may
+       * expand this iteration.
+       */
+       val neighbor_cells = plasmodium_cells.flatMap(cell =>
+         cell.neighbors.filter(neighbor =>
+           !neighbor.contains_plasmodium)).toSet
+       
+
+    }
   }
 
-  /** A simple class which launches [[physarum.Simulation]]. */
+  /** A simple object which launches [[physarum.Simulation]]. */
   object Main {
     def main(args: Array[String]) {
       PApplet.main("physarum.Simulation")
