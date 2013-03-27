@@ -1,5 +1,7 @@
 import processing.core.PApplet
 import scala.collection.mutable.{Set => MSet, Map => MMap}
+import scala.math.exp
+import scala.util.Random
 
 package physarum {
   /** Trait representing pheromones, objects which can be associated with
@@ -48,7 +50,7 @@ package physarum {
     val neighbors: MSet[Cell] = MSet()
 
     /** Connects this cell to a neighbor. Used when initialize the model. */
-    def connect_to(neighbor: Cell) = {
+    def connect_to(neighbor: Cell) {
       neighbors.add(neighbor)
       neighbor.neighbors.add(this)
     }
@@ -158,6 +160,10 @@ package physarum {
     
     def contains_plasmodium: Boolean = objects.exists(obj =>
       obj.isInstanceOf[Plasmodium])
+
+    def add_plasmodium() =
+      if(!contains_plasmodium)
+        objects.add(new Plasmodium(1.0))
   }
 
   /**
@@ -179,6 +185,8 @@ package physarum {
 
     /** The simulation's state is represented by a mutable 2D grid of cells */
     val grid: Array[Array[Cell]] = Array.ofDim(rows, cols)
+
+    val random = new Random()
 
     /** Inherited from PApplet. Sets up the model and view states for the
       * simulation.
@@ -233,6 +241,11 @@ package physarum {
       * Iterates over all of the cells in the grid, updating their pheromone
       * levels */
     def update_pheromone() {
+      // Dissipate the pheromone levels across cell boundaries
+      grid.foreach(row =>
+        row.foreach(cell =>
+          cell.dissipate_pheromone()))
+
       // Iterate over each cell in the grid
       grid.foreach(row =>
         row.foreach(cell => {
@@ -240,15 +253,21 @@ package physarum {
           cell.save_pheromone()
         })
       )
-
-      grid.foreach(row =>
-        row.foreach(cell =>
-          cell.dissipate_pheromone()))
     }
 
     def update_plasmodium() {
+      def sigmoid(x: Double): Double = 1/(1 + math.exp(-x))
+
+      val cells = grid.flatten
       // All cells containing plasmodium
-      val plasmodium_cells = grid.flatten.filter(cell => cell.contains_plasmodium)
+      val plasmodium_cells = cells.filter(cell => cell.contains_plasmodium)
+
+      val global_average_pheromone = cells.foldLeft(0.0)({
+        case (acc, cell) => acc + (cell.pheromones.get(Attract) match {
+          case None => 0.0
+          case Some(v) => v
+        })
+      })/cells.size
 
       /* All cells not containing plasmodium that are neighbored by cells
        * containing plasmodium. These are cells where the plasmodium may
@@ -258,7 +277,20 @@ package physarum {
          cell.neighbors.filter(neighbor =>
            !neighbor.contains_plasmodium)).toSet
        
+       /* For each neighbor cell, calculate its pheromone level and, depending
+        * on how far above or below the average it is, use a sigmoid function
+        * (Cumulative Dist Function) to compute the probablity that plasmodium
+        * will spread to it. */
+       neighbor_cells.foreach(cell => {
+         val pheromone = cell.pheromones.get(Attract) match {
+           case None => 0.0
+           case Some(v) => v
+         }
 
+         val probability = sigmoid(5*(pheromone - global_average_pheromone))
+         if(random.nextDouble() < probability)
+           cell.add_plasmodium()
+       })
     }
   }
 
