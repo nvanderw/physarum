@@ -157,6 +157,15 @@ package physarum {
         })
       })
     }
+
+    /** Compute the total amount of pheromone in this cell. At the moment,
+      * this just reports the amount of Attract in the cell (or zero if there
+      * is no Atrract). It could be any function of the various pheromone
+      * amounts, however. */
+    def total_pheromone: Double = pheromones.get(Attract) match {
+      case None => 0.0
+      case Some(x) => x
+    }
     
     def contains_plasmodium: Boolean = objects.exists(obj =>
       obj.isInstanceOf[Plasmodium])
@@ -164,6 +173,10 @@ package physarum {
     def add_plasmodium() =
       if(!contains_plasmodium)
         objects.add(new Plasmodium(1.0))
+
+    def remove_plasmodium() =
+      if(contains_plasmodium)
+        objects.retain(obj => !obj.isInstanceOf[Plasmodium])
   }
 
   /**
@@ -259,38 +272,49 @@ package physarum {
       def sigmoid(x: Double): Double = 1/(1 + math.exp(-x))
 
       val cells = grid.flatten
-      // All cells containing plasmodium
-      val plasmodium_cells = cells.filter(cell => cell.contains_plasmodium)
 
-      val global_average_pheromone = cells.foldLeft(0.0)({
-        case (acc, cell) => acc + (cell.pheromones.get(Attract) match {
-          case None => 0.0
-          case Some(v) => v
+      def propagate_plasmodium() {
+        // All cells containing plasmodium
+        val plasmodium_cells = cells.filter(cell => cell.contains_plasmodium)
+
+        /* All cells not containing plasmodium that are neighbored by cells
+         * containing plasmodium. These are cells where the plasmodium may
+         * expand this iteration.
+         */
+         val neighbor_cells = plasmodium_cells.flatMap(cell =>
+           cell.neighbors.filter(neighbor =>
+             !neighbor.contains_plasmodium)).toSet
+         
+         val neighbor_average_pheromone = neighbor_cells.foldLeft(0.0)({
+           case (acc, cell) => acc + cell.total_pheromone
+         })/neighbor_cells.size
+         
+         neighbor_cells.foreach(cell => {
+           val difference = cell.total_pheromone - neighbor_average_pheromone
+           val probability = sigmoid(2 * difference)
+           if(random.nextDouble() < probability)
+             cell.add_plasmodium()
+         })
+      }
+
+      def chisel_plasmodium() {
+        // All cells containing plasmodium
+        val plasmodium_cells = cells.filter(cell => cell.contains_plasmodium)
+
+        val plasmodium_average_pheromone = plasmodium_cells.foldLeft(0.0)({
+          case (acc, cell) => acc + cell.total_pheromone
+        })/plasmodium_cells.size
+
+        plasmodium_cells.foreach(cell => {
+          val difference = 0.8*plasmodium_average_pheromone - cell.total_pheromone
+          val probability = sigmoid(3*difference)
+          if(random.nextDouble() < probability)
+            cell.remove_plasmodium()
         })
-      })/cells.size
+      }
 
-      /* All cells not containing plasmodium that are neighbored by cells
-       * containing plasmodium. These are cells where the plasmodium may
-       * expand this iteration.
-       */
-       val neighbor_cells = plasmodium_cells.flatMap(cell =>
-         cell.neighbors.filter(neighbor =>
-           !neighbor.contains_plasmodium)).toSet
-       
-       /* For each neighbor cell, calculate its pheromone level and, depending
-        * on how far above or below the average it is, use a sigmoid function
-        * (Cumulative Dist Function) to compute the probablity that plasmodium
-        * will spread to it. */
-       neighbor_cells.foreach(cell => {
-         val pheromone = cell.pheromones.get(Attract) match {
-           case None => 0.0
-           case Some(v) => v
-         }
-
-         val probability = sigmoid(5*(pheromone - global_average_pheromone))
-         if(random.nextDouble() < probability)
-           cell.add_plasmodium()
-       })
+      propagate_plasmodium()
+      chisel_plasmodium()
     }
   }
 
