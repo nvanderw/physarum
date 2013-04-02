@@ -4,6 +4,12 @@ import scala.math.exp
 import scala.util.Random
 
 package physarum {
+  /** This simulation has plenty of tunable parameters, which we store here */
+  object Constants {
+    val decay_rate = 0.9
+    val cell_permeability = 0.8
+  }
+
   /** Trait representing pheromones, objects which can be associated with
     * a concentration */
   trait Pheromone
@@ -78,13 +84,11 @@ package physarum {
       * [[physarum.Simulation]]'s update_pheromone method.
       */
     def decay_pheromone() {
-      val decay_constant = 0.9
-
       /* Iterate over (pheromone, level) pairs, mutating the levels
        * by multiplying them by the decay constant */
       pheromones.foreach({
         case (pheromone, level) => {
-          pheromones.update(pheromone, level * decay_constant)
+          pheromones.update(pheromone, level * Constants.decay_rate)
         }
       })
     }
@@ -116,7 +120,7 @@ package physarum {
     }
 
     def dissipate_pheromone() {
-      val dissipation_constant = 0.8 / 8
+      val dissipation_constant = Constants.cell_permeability / 8
 
       def pheromone_gradient(a: Cell, b: Cell): Map[Pheromone, Double] = {
         val output: MMap[Pheromone, Double] = MMap()
