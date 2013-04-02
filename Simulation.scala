@@ -17,8 +17,9 @@ package physarum {
   }
 
   /** A food source, represented as an object which secretes attractant */
-  class Food(amount: Double) extends Odiferous {
-    def scent: Map[Pheromone, Double] = Map(Attract -> amount)
+  class Food(amt: Double) extends Odiferous {
+    val amount = amt
+    def scent: Map[Pheromone, Double] = Map(Attract -> amt)
   }
 
   /** Plasmodium, which secretes attractant */
@@ -77,7 +78,7 @@ package physarum {
       * [[physarum.Simulation]]'s update_pheromone method.
       */
     def decay_pheromone() {
-      val decay_constant = 0.8
+      val decay_constant = 0.9
 
       /* Iterate over (pheromone, level) pairs, mutating the levels
        * by multiplying them by the decay constant */
@@ -115,7 +116,7 @@ package physarum {
     }
 
     def dissipate_pheromone() {
-      val dissipation_constant = 0.5 / 8
+      val dissipation_constant = 0.8 / 8
 
       def pheromone_gradient(a: Cell, b: Cell): Map[Pheromone, Double] = {
         val output: MMap[Pheromone, Double] = MMap()
@@ -177,6 +178,11 @@ package physarum {
     def remove_plasmodium() =
       if(contains_plasmodium)
         objects.retain(obj => !obj.isInstanceOf[Plasmodium])
+
+    def total_food: Double =
+      objects.filter(obj => obj.isInstanceOf[Food]).foldLeft(0.0)({
+        case (acc, obj) => acc + obj.asInstanceOf[Food].amount
+      })
   }
 
   /**
@@ -298,19 +304,53 @@ package physarum {
       }
 
       def chisel_plasmodium() {
+        def select_from_pmf[A](random: Random, pmf: Map[A, Double]): A = {
+          val r = random.nextDouble()
+          var sum = 0.0
+          pmf.foreach({
+            case (event, prob) => {
+              sum = sum + prob
+              if(sum > r)
+                return event
+            }
+          })
+
+          // If we get here, the sum of all probabilities is less than 1.
+          println(pmf)
+          throw new Exception("Given map is not a PMF")
+        }
+
         // All cells containing plasmodium
         val plasmodium_cells = cells.filter(cell => cell.contains_plasmodium)
 
-        val plasmodium_average_pheromone = plasmodium_cells.foldLeft(0.0)({
-          case (acc, cell) => acc + cell.total_pheromone
-        })/plasmodium_cells.size
+        val nonessential_cells = plasmodium_cells.filter(cell =>
+          cell.total_food < 1)
 
-        plasmodium_cells.foreach(cell => {
-          val difference = 0.8*plasmodium_average_pheromone - cell.total_pheromone
-          val probability = sigmoid(3*difference)
-          if(random.nextDouble() < probability)
-            cell.remove_plasmodium()
-        })
+        /* Find the number of cells we can sustain by calculating the
+         * total colonized food */
+        val sustainable_cells = plasmodium_cells.foldLeft(0.0)({
+          case (acc, cell) => acc + cell.total_food
+        }).toInt
+
+        if(plasmodium_cells.size > sustainable_cells) {
+          val total_pheromone = plasmodium_cells.foldLeft(0.0)({
+            case (acc, cell) => acc + cell.total_pheromone
+          })
+
+          if(total_pheromone > 0) {
+            // Calculate the probability that each nonessential cell will
+            // be removed
+            val probabilities = nonessential_cells.map(cell =>
+              1 - cell.total_pheromone / total_pheromone)
+
+            val pmf = nonessential_cells.zip(probabilities).toMap
+            select_from_pmf(random, pmf).remove_plasmodium()
+          }
+        }
+
+        if(plasmodium_cells.size > (sustainable_cells + 1)) {
+          chisel_plasmodium()
+        }
       }
 
       propagate_plasmodium()
