@@ -1,13 +1,19 @@
 import processing.core.PApplet
 import scala.collection.mutable.{Set => MSet, Map => MMap}
-import scala.math.exp
+
+import scala.math.{exp, max}
 import scala.util.Random
 
 package physarum {
   /** This simulation has plenty of tunable parameters, which we store here */
   object Constants {
-    val decay_rate = 0.9
-    val cell_permeability = 0.5
+    val decay_rate = 0.8
+    val cell_permeability = 0.7
+    val cell_cohesion = 0.3
+
+    val instability = 0.8
+    val directedness = 2
+    val nutritional_value = 12.0
   }
 
   /** Trait representing pheromones, objects which can be associated with
@@ -41,7 +47,8 @@ package physarum {
 
   /** Plasmodium, which secretes attractant */
   class Plasmodium(amount: Double) extends Tangible {
-    def scent: Map[Pheromone, Double] = Map(Attract -> amount)
+    def scent: Map[Pheromone, Double] = Map(Attract ->
+      amount * Constants.cell_cohesion)
 
     def draw(rect: Rectangle, applet: PApplet) {
       val Rectangle(x0, y0, width, height) = rect
@@ -237,7 +244,7 @@ package physarum {
     * mold will want to grow.
     */
   class Simulation extends PApplet {
-    val (cols, rows)   = (10, 10)
+    val (cols, rows)   = (50, 50)
     val (res_x, res_y) = (1024, 1024)
 
     /** The simulation's state is represented by a mutable 2D grid of cells */
@@ -264,10 +271,12 @@ package physarum {
         })
       )
 
-      grid(0)(0).objects.add(new Plasmodium(1.0))
-      grid(0)(0).objects.add(new Food(10.0))
-      grid(3)(3).objects.add(new Food(8.0))
-      grid(6)(6).objects.add(new Food(10.0))
+      grid(25)(25).objects.add(new Plasmodium(1.0))
+      grid(25)(25).objects.add(new Food(Constants.nutritional_value))
+      grid.indices.foreach(row =>
+        grid(row).indices.foreach(col =>
+          if(random.nextDouble() < 0.04)
+            grid(row)(col).objects.add(new Food(Constants.nutritional_value))))
 
       // Connect the cells
       grid.indices.foreach(row =>
@@ -300,23 +309,6 @@ package physarum {
     override def draw() {
       update_model()
       background(0x20, 0x20, 0x20)
-
-      grid.foreach(row => {
-        row.foreach(cell =>
-          /*
-          cell.pheromones.get(Attract) match {
-            case Some(v) => {
-              Predef.print(v)
-              Predef.print(" ")
-            }
-            case None => {}
-          }
-          */
-          Predef.print(if(cell.contains_plasmodium) "x" else " ")
-        )
-        println("")
-      })
-      println("")
 
       val cells = grid.flatten
       val average_pheromone = cells.foldLeft(0.0)({
@@ -373,7 +365,7 @@ package physarum {
          
          neighbor_cells.foreach(cell => {
            val difference = cell.total_pheromone - neighbor_average_pheromone
-           val probability = sigmoid(2 * difference)
+           val probability = sigmoid(Constants.directedness * difference)
            if(random.nextDouble() < probability)
              cell.add_plasmodium()
          })
@@ -408,8 +400,8 @@ package physarum {
           case (acc, cell) => acc + cell.total_food
         }).toInt
 
-        if(plasmodium_cells.size > sustainable_cells) {
-          val total_pheromone = plasmodium_cells.foldLeft(0.0)({
+        if(nonessential_cells.size > 1) {
+          val total_pheromone = nonessential_cells.foldLeft(0.0)({
             case (acc, cell) => acc + cell.total_pheromone
           })
 
@@ -424,7 +416,8 @@ package physarum {
           }
         }
 
-        if(plasmodium_cells.size > (sustainable_cells + 1)) {
+        if(plasmodium_cells.size > (sustainable_cells + 1)
+            || random.nextDouble() < Constants.instability) {
           chisel_plasmodium()
         }
       }
