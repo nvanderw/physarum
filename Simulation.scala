@@ -7,7 +7,7 @@ package physarum {
   /** This simulation has plenty of tunable parameters, which we store here */
   object Constants {
     val decay_rate = 0.9
-    val cell_permeability = 0.8
+    val cell_permeability = 0.5
   }
 
   /** Trait representing pheromones, objects which can be associated with
@@ -17,20 +17,39 @@ package physarum {
   /** Case object for the attractant pheromone */
   case object Attract extends Pheromone
 
-  /** Objects which periodically emit some pheromone. */
-  trait Odiferous {
+  case class Rectangle(x0: Float, y0: Float, width: Float, height: Float)
+
+  /** Objects which may periodically emit some pheromone and be drawn to
+    * the screen */
+  trait Tangible {
     def scent: Map[Pheromone, Double]
+
+    def draw(rect: Rectangle, applet: PApplet)
+    val zindex: Int
   }
 
   /** A food source, represented as an object which secretes attractant */
-  class Food(amt: Double) extends Odiferous {
+  class Food(amt: Double) extends Tangible {
     val amount = amt
     def scent: Map[Pheromone, Double] = Map(Attract -> amt)
+    
+    def draw(rect: Rectangle, applet: PApplet) {
+    }
+
+    val zindex = 10
   }
 
   /** Plasmodium, which secretes attractant */
-  class Plasmodium(amount: Double) extends Odiferous {
+  class Plasmodium(amount: Double) extends Tangible {
     def scent: Map[Pheromone, Double] = Map(Attract -> amount)
+
+    def draw(rect: Rectangle, applet: PApplet) {
+      val Rectangle(x0, y0, width, height) = rect
+      applet.fill(0, 0, 100, 100)
+      applet.rect(x0, y0, x0 + width, y0 + height)
+    }
+
+    val zindex = 0
   }
 
   /**
@@ -40,8 +59,11 @@ package physarum {
     * amounts in the space as well as food sources and plasmodium.
     */
   class Cell {
+    /** Rectangle in which this cell is located */
+    var rect: Rectangle = null
+
     /** Mutable set of objects at this location */
-    val objects: MSet[Odiferous] = MSet()
+    val objects: MSet[Tangible] = MSet()
     
     /** Mutable map of pheromone levels */
     val pheromones: MMap[Pheromone, Double] = MMap()
@@ -187,6 +209,17 @@ package physarum {
       objects.filter(obj => obj.isInstanceOf[Food]).foldLeft(0.0)({
         case (acc, obj) => acc + obj.asInstanceOf[Food].amount
       })
+
+    def draw(applet: PApplet, avg_pher: Double) {
+      def sigmoid(x: Double): Double = 1/(1 + math.exp(-x))
+      val Rectangle(x0, y0, width, height) = rect
+
+      val red = (sigmoid((total_pheromone - avg_pher)/10) * 255).toFloat
+      applet.fill(red, 0f, 0f)
+      applet.rect(x0, y0, x0 + width, y0 + height)
+
+      objects.foreach(obj => obj.draw(rect, applet))
+    }
   }
 
   /**
@@ -204,7 +237,8 @@ package physarum {
     * mold will want to grow.
     */
   class Simulation extends PApplet {
-    val (rows, cols) = (10, 10)
+    val (cols, rows)   = (10, 10)
+    val (res_x, res_y) = (1024, 1024)
 
     /** The simulation's state is represented by a mutable 2D grid of cells */
     val grid: Array[Array[Cell]] = Array.ofDim(rows, cols)
@@ -215,12 +249,25 @@ package physarum {
       * simulation.
       */
     override def setup() {
+      val cell_width  = res_x.toFloat / cols.toFloat
+      val cell_height = res_y.toFloat / rows.toFloat
+
+      //frameRate(5)
+
       // Set up the model state
       grid.indices.foreach(row =>
-        grid(row).indices.foreach(col =>
-          grid(row)(col) = new Cell()
-        )
+        grid(row).indices.foreach(col => {
+          val cell = new Cell()
+          grid(row)(col) = cell
+          cell.rect =
+            Rectangle(col * cell_width, row * cell_height, cell_width, cell_height)
+        })
       )
+
+      grid(0)(0).objects.add(new Plasmodium(1.0))
+      grid(0)(0).objects.add(new Food(10.0))
+      grid(3)(3).objects.add(new Food(8.0))
+      grid(6)(6).objects.add(new Food(10.0))
 
       // Connect the cells
       grid.indices.foreach(row =>
@@ -246,13 +293,37 @@ package physarum {
         }))
           
 
-      size(1024, 768)
+      size(res_x, res_y)
     }
 
     /** Inherited from PApplet. Draws the state of the simulation. */
     override def draw() {
       update_model()
       background(0x20, 0x20, 0x20)
+
+      grid.foreach(row => {
+        row.foreach(cell =>
+          /*
+          cell.pheromones.get(Attract) match {
+            case Some(v) => {
+              Predef.print(v)
+              Predef.print(" ")
+            }
+            case None => {}
+          }
+          */
+          Predef.print(if(cell.contains_plasmodium) "x" else " ")
+        )
+        println("")
+      })
+      println("")
+
+      val cells = grid.flatten
+      val average_pheromone = cells.foldLeft(0.0)({
+        case (acc, cell) => acc + cell.total_pheromone
+      })/cells.size
+
+      cells.foreach(cell => cell.draw(this, average_pheromone))
     }
 
     def update_model() {
@@ -262,7 +333,8 @@ package physarum {
 
     /**
       * Iterates over all of the cells in the grid, updating their pheromone
-      * levels */
+      * levels
+      */
     def update_pheromone() {
       // Dissipate the pheromone levels across cell boundaries
       grid.foreach(row =>
