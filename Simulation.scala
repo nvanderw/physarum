@@ -40,6 +40,9 @@ package physarum {
     def scent: Map[Pheromone, Double] = Map(Attract -> amt)
     
     def draw(rect: Rectangle, applet: PApplet) {
+      val Rectangle(x0, y0, width, height) = rect
+      applet.fill(0, 100, 0, 100)
+      applet.ellipse(x0 + width/2, y0 + height/2, 3, 3)
     }
 
     val zindex = 10
@@ -225,7 +228,7 @@ package physarum {
       applet.fill(red, 0f, 0f)
       applet.rect(x0, y0, x0 + width, y0 + height)
 
-      objects.foreach(obj => obj.draw(rect, applet))
+      objects.toList.sortBy(obj => obj.zindex).foreach(obj => obj.draw(rect, applet))
     }
   }
 
